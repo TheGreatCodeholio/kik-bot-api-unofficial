@@ -6,7 +6,7 @@ import hmac
 import rsa
 from bs4 import BeautifulSoup
 from kik_unofficial.datatypes.xmpp.base_elements import XMPPElement
-from kik_unofficial.device_configuration import device_id, kik_version_info, android_id
+from kik_unofficial.device_configuration import *
 from kik_unofficial.utilities.cryptographic_utilities import CryptographicUtils
 
 captcha_element = '<challenge><response>{}</response></challenge>'
@@ -17,13 +17,26 @@ class LoginRequest(XMPPElement):
     """
     Represents a Kik Login request.
     """
-    def __init__(self, username, password, captcha_result=None, device_id_override=None, android_id_override=None):
+
+    def __init__(self, username, password, captcha_result=None, device_id_override=None, android_id_override=None,
+                 operator_override=None,
+                 brand_override=None, model_override=None, android_sdk_override=None, 
+                 install_date_override=None, logins_since_install_override=None,
+                 registrations_since_install_override=None,):
         super().__init__()
         self.username = username
         self.password = password
         self.captcha_result = captcha_result
         self.device_id_override = device_id_override
         self.android_id_override = android_id_override
+        self.operator_override = operator_override
+        self.brand_override = brand_override
+        self.model_override = model_override
+        self.android_sdk_override = android_sdk_override
+        self.install_date_override = install_date_override
+        self.logins_since_install_override = logins_since_install_override
+        self.registrations_since_install_override = registrations_since_install_override
+        
 
     def serialize(self) -> bytes:
         password_key = CryptographicUtils.key_from_password(self.username, self.password)
@@ -40,23 +53,32 @@ class LoginRequest(XMPPElement):
                 '{}'
                 '<device-id>{}</device-id>'
                 '<install-referrer>utm_source=google-play&amp;utm_medium=organic</install-referrer>'
-                '<operator>unknown</operator>'
-                '<install-date>unknown</install-date>'
+                '<operator>{}</operator>'
+                '<install-date>{}</install-date>'
                 '<device-type>android</device-type>'
-                '<brand>generic</brand>'
-                '<logins-since-install>1</logins-since-install>'
+                '<brand>{}</brand>'
+                '<logins-since-install>{}</logins-since-install>'
                 '<version>{}</version>'
                 '<lang>en_US</lang>'
-                '<android-sdk>19</android-sdk>'
-                '<registrations-since-install>0</registrations-since-install>'
+                '<android-sdk>{}</android-sdk>'
+                '<registrations-since-install>{}</registrations-since-install>'
                 '<prefix>CAN</prefix>'
                 '<android-id>{}</android-id>'
-                '<model>Samsung Galaxy S5 - 4.4.4 - API 19 - 1080x1920</model>'
+                '<model>{}</model>'
                 '{}'
                 '</query>'
                 '</iq>').format(self.message_id, tag.format(self.username, password_key),
                                 self.device_id_override if self.device_id_override else device_id,
-                                kik_version, self.android_id_override if self.android_id_override else android_id, captcha)
+                                self.operator_override if self.operator_override else operator,
+                                self.install_date_override if self.install_date_override else install_date,
+                                self.brand_override if self.brand_override else brand,
+                                self.logins_since_install_override if self.logins_since_install_override else
+                                               logins_since_install,
+                                kik_version, self.android_sdk_override if self.android_sdk_override else android_sdk,
+                                self.registrations_since_install_override if self.registrations_since_install_override
+                                               else registrations_since_install,
+                                self.android_id_override if self.android_id_override else android_id,
+                                self.model_override if self.model_override else model, captcha)
         return data.encode()
 
 
@@ -64,6 +86,7 @@ class LoginResponse:
     """
     Represents a Kik Login response that is received after a log-in attempt.
     """
+
     def __init__(self, data: BeautifulSoup):
         self.kik_node = data.query.node.text
         self.email = data.query.email.text
@@ -78,6 +101,7 @@ class EstablishAuthenticatedSessionRequest(XMPPElement):
     a request sent on the begging of the connection to establish
     an authenticated session. That is, on the behalf of a specific kik user, with his credentials.
     """
+
     def __init__(self, node, username, password, device_id_override=None):
         super().__init__()
         self.node = node
@@ -123,6 +147,7 @@ class CaptchaElement:
     The 'stc' element is received when Kik requires a captcha to be filled in, it's followed up by a 'hold' element after
     which the connection is paused.
     """
+
     def __init__(self, data: BeautifulSoup):
         self.type = data.stp['type']
         self.captcha_url = data.stp.text + "&callback_url=https://kik.com/captcha-url"
@@ -133,6 +158,7 @@ class CaptchaSolveRequest(XMPPElement):
     """
     Response to the 'stc' element. Given the result of the captcha, the connection will resume.
     """
+
     def __init__(self, stc_id: str, captcha_result: str):
         super().__init__()
         self.captcha_result = captcha_result

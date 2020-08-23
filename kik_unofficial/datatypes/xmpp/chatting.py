@@ -7,6 +7,7 @@ import os
 import requests
 import json
 import base64
+from colorama import Fore, Style, Back
 from io import BytesIO
 from PIL import Image
 from bs4 import BeautifulSoup
@@ -19,6 +20,7 @@ class OutgoingChatMessage(XMPPElement):
     """
     Represents an outgoing text chat message to another kik entity (member or group)
     """
+
     def __init__(self, peer_jid, body, is_group=False, bot_mention_jid=None):
         super().__init__()
         self.peer_jid = peer_jid
@@ -51,6 +53,7 @@ class OutgoingGroupChatMessage(OutgoingChatMessage):
     """
     Represents an outgoing text chat message to a group
     """
+
     def __init__(self, group_jid, body, bot_mention_jid):
         super().__init__(group_jid, body, is_group=True, bot_mention_jid=bot_mention_jid)
 
@@ -59,6 +62,7 @@ class OutgoingChatImage(XMPPElement):
     """
    Represents an outgoing image chat message to another kik entity (member or group)
    """
+
     def __init__(self, peer_jid, file_location, is_group=False, forward=True):
         super().__init__()
         self.peer_jid = peer_jid
@@ -97,10 +101,10 @@ class OutgoingChatImage(XMPPElement):
             '</content>'
             '</message>'
         ).format(self.peer_jid, self.message_id, timestamp, message_type, self.content_id,
-                 self.parsed['size'], str(self.allow_forward).lower(), self.parsed['base64'], self.parsed['SHA1'], 
+                 self.parsed['size'], str(self.allow_forward).lower(), self.parsed['base64'], self.parsed['SHA1'],
                  self.parsed['SHA1Scaled'], self.parsed['blockhash'])
 
-        packets =  [data[s:s+16384].encode() for s in range(0, len(data), 16384)]
+        packets = [data[s:s + 16384].encode() for s in range(0, len(data), 16384)]
         return list(packets)
 
 
@@ -108,6 +112,7 @@ class OutgoingGroupChatImage(OutgoingChatImage):
     """
     Represents an outgoing image chat message to a group
     """
+
     def __init__(self, group_jid, file_location, forward):
         super().__init__(group_jid, file_location, is_group=True, forward=forward)
 
@@ -116,6 +121,7 @@ class IncomingChatMessage(XMPPResponse):
     """
     Represents an incoming text chat message from another user
     """
+
     def __init__(self, data: BeautifulSoup):
         super().__init__(data)
         self.request_delivered_receipt = data.request['d'] == 'true' if data.request else False
@@ -134,6 +140,7 @@ class IncomingGroupChatMessage(IncomingChatMessage):
     """
     Represents an incoming text chat message from a group
     """
+
     def __init__(self, data: BeautifulSoup):
         super().__init__(data)
         self.group_jid = data.g['jid']
@@ -145,6 +152,7 @@ class OutgoingReadReceipt(XMPPElement):
     """
     Represents an outgoing read receipt to a specific user, for one or more messages
     """
+
     def __init__(self, peer_jid, receipt_message_id, group_jid=None):
         super().__init__()
         self.peer_jid = peer_jid
@@ -167,30 +175,19 @@ class OutgoingReadReceipt(XMPPElement):
 
 
 class OutgoingDeliveredReceipt(XMPPElement):
-    def __init__(self, peer_jid, receipt_message_id, group_jid=None):
+    def __init__(self, peer_jid, receipt_message_id):
         super().__init__()
-
-        self.group_jid = group_jid
         self.peer_jid = peer_jid
         self.receipt_message_id = receipt_message_id
 
     def serialize(self):
-        if self.group_jid and 'groups.kik.com' in self.group_jid:
-            g_tag = " g=\"{}\"".format(self.group_jid)
-        else:
-            g_tag = ''
-
         timestamp = str(int(round(time.time() * 1000)))
-        data = ('<iq type="set" id="{}" cts="{}">'
-                '<query xmlns="kik:iq:QoS">'
-                '<msg-acks>'
-                '<sender jid="{}"{}>'
-                '<ack-id receipt="true">{}</ack-id>'
-                '</sender>'
-                '</msg-acks>'
-                '<history attach="false" />'
-                '</query>'
-                '</iq>').format(self.message_id, timestamp, self.peer_jid, g_tag, self.receipt_message_id)
+        data = ('<message type="receipt" id="{}" to="{}" cts="{}">'
+                '<kik push="false" qos="true" timestamp="{}" />'
+                '<receipt xmlns="kik:message:receipt" type="delivered">'
+                '<msgid id="{}" />'
+                '</receipt>'
+                '</message>').format(self.message_id, self.peer_jid, timestamp, timestamp, self.receipt_message_id)
         return data.encode()
 
 
@@ -316,8 +313,15 @@ class IncomingGroupSysmsg(XMPPResponse):
         super().__init__(data)
         self.request_delivered_receipt = data.request['d'] == 'true' if data.request else False
         self.requets_read_receipt = data.request['r'] == 'true' if data.request else False
-        self.group_jid = data['from']
-        self.to_jid = data['to']
+        self.spoof = False
+        print(Fore.RED + data.find('message') + Style.RESET_ALL)
+        if data.find('message'):
+            print(Fore.RED + "HACKER" + Style.RESET_ALL)
+            self.spoof = 'true'
+            self.from_jid = data['from']
+            self.group_jid = data.g["jid"]
+        else:
+            self.group_jid = data['from']
         self.sysmsg_xmlns = data.sysmsg['xmlns'] if data.sysmsg and 'xmlns' in data.sysmsg.attrs else None
         self.sysmsg = data.sysmsg.text if data.sysmsg else None
         self.group = Group(data.g) if data.g and len(data.g.contents) > 0 else None
@@ -347,6 +351,8 @@ class IncomingStatusResponse(XMPPResponse):
     def __init__(self, data: BeautifulSoup):
         super().__init__(data)
         status = data.find('status')
+        if data['blue']:
+            print(Fore.RED + "HACKER" + Style.RESET_ALL)
         self.from_jid = data['from']
         self.status = status.text
         self.special_visibility = status['special-visibility'] == 'true'
@@ -360,6 +366,8 @@ class IncomingImageMessage(XMPPResponse):
         self.requets_read_receipt = data.request['r'] == 'true'
         self.image_url = data.find('file-url').get_text() if data.find('file-url') else None
         self.status = data.status.text if data.status else None
+        self.source_id = data.content['app-id']
+        self.source_name = data.find('app-name').get_text()
         self.from_jid = data['from']
         self.to_jid = data['to']
         self.group_jid = data.g['jid'] if data.g else None
@@ -398,6 +406,7 @@ class IncomingGifMessage(XMPPResponse):
     """
     Represents an incoming GIF message from another kik entity, sent as a URL
     """
+
     def __init__(self, data: BeautifulSoup):
         super().__init__(data)
         self.request_delivered_receipt = data.request['d'] == 'true'
@@ -419,6 +428,7 @@ class OutgoingGIFMessage(XMPPElement):
     """
 	Represents an outgoing GIF message to another kik entity (member or group)
 	"""
+
     def __init__(self, peer_jid, search_term, is_group=True):
         super().__init__()
         self.peer_jid = peer_jid
@@ -459,15 +469,15 @@ class OutgoingGIFMessage(XMPPElement):
             '<request r="true" d="true" xmlns="kik:message:receipt"/>'
             '</message>'
         ).format(timestamp, message_type, self.message_id, timestamp, self.message_id, self.gif_preview,
-                    self.gif_data["mp4"]["url"], self.gif_data["webm"]["url"], self.gif_data["tinymp4"]["url"],
-                    self.gif_data["tinywebm"]["url"], self.gif_data["nanomp4"]["url"],
-                    self.gif_data["nanowebm"]["url"], self.peer_jid)
+                 self.gif_data["mp4"]["url"], self.gif_data["webm"]["url"], self.gif_data["tinymp4"]["url"],
+                 self.gif_data["tinywebm"]["url"], self.gif_data["nanomp4"]["url"],
+                 self.gif_data["nanowebm"]["url"], self.peer_jid)
 
         packets = [data[s:s + 16384].encode() for s in range(0, len(data), 16384)]
         return list(packets)
 
     def get_gif_data(self, search_term):
-        apikey = ""  # add api key from https://tenor.com/gifapi
+        apikey = "A5PWUPH6RGNF"  # add api key from https://tenor.com/gifapi
         if apikey == "":
             raise Exception("A tendor.com API key is required to search for GIFs images. please get one and change it")
 
@@ -475,14 +485,78 @@ class OutgoingGIFMessage(XMPPElement):
         if r.status_code == 200:
             gif = json.loads(r.content.decode('ascii'))
             response = requests.get(gif["results"][0]["media"][0]["nanomp4"]["preview"])
+            print(response)
             img = Image.open(BytesIO(response.content))
             buffered = BytesIO()
-
             img.convert("RGB").save(buffered, format="JPEG")
             img_str = base64.b64encode(buffered.getvalue()).decode('ascii')
+            print(gif["results"][0]["media"][0])
             return img_str, gif["results"][0]["media"][0]
         else:
             return ""
+
+
+class OutgoingCustomeGIFMessage(XMPPElement):
+    """
+	Represents an outgoing custom GIF message to another kik entity (member or group)
+	"""
+
+    def __init__(self, peer_jid, path, url, is_group=True):
+        super().__init__()
+        self.peer_jid = peer_jid
+        self.allow_forward = True
+        self.is_group = is_group
+        self.gif_preview, self.gif_data = self.get_gif_data(path, url)
+
+    def serialize(self):
+        timestamp = str(int(round(time.time() * 1000)))
+        message_type = "chat" if not self.is_group else "groupchat"
+        data = (
+            '<message cts="{0}" type="{1}" to="{12}" id="{2}" xmlns="jabber:client">'
+            '<kik push="true" timestamp="{3}" qos="true"/>'
+            '<pb/>'
+            '<content id="{4}" v="2" app-id="com.kik.ext.gif">'
+            '<strings>'
+            '<app-name>GIF</app-name>'
+            '<layout>video</layout>'
+            '<allow-forward>true</allow-forward>'
+            '<disallow-save>true</disallow-save>'
+            '<video-should-autoplay>true</video-should-autoplay>'
+            '<video-should-loop>true</video-should-loop>'
+            '<video-should-be-muted>true</video-should-be-muted>'
+            '</strings>'
+            '<images>'
+            '<icon></icon>'
+            '<preview>{5}</preview>'
+            '</images>'
+            '<uris>'
+            '<uri priority="0" type="video" file-content-type="video/mp4">{6}</uri>'
+            '<uri priority="1" type="video" file-content-type="video/webm">{7}</uri>'
+            '<uri priority="0" type="video" file-content-type="video/tinymp4">{8}</uri>'
+            '<uri priority="1" type="video" file-content-type="video/tinywebm">{9}</uri>'
+            '<uri priority="0" type="video" file-content-type="video/nanomp4">{10}</uri>'
+            '<uri priority="1" type="video" file-content-type="video/nanowebm">{11}</uri>'
+            '</uris>'
+            '</content>'
+            '<request r="true" d="true" xmlns="kik:message:receipt"/>'
+            '</message>'
+        ).format(timestamp, message_type, self.message_id, timestamp, self.message_id, self.gif_preview,
+                 self.gif_data["mp4"]["url"], self.gif_data["webm"]["url"], self.gif_data["tinymp4"]["url"],
+                 self.gif_data["tinywebm"]["url"], self.gif_data["nanomp4"]["url"],
+                 self.gif_data["nanowebm"]["url"], self.peer_jid)
+
+        packets = [data[s:s + 16384].encode() for s in range(0, len(data), 16384)]
+        return list(packets)
+
+    def get_gif_data(self, path, url):
+        img = Image.open(path)
+        buffered = BytesIO()
+        img.convert("RGB").save(buffered, format="JPEG")
+        img_str = base64.b64encode(buffered.getvalue()).decode('ascii')
+        gif = {'mp4': {'url': url + '.mp4'}, 'webm': {'url': url + '.webm'}, 'tinymp4': {'url': url + '.mp4'},
+               'tinywebm': {'url': url + '.webm'}, 'nanomp4': {'url': url + '.mp4'}, 'nanowebm': {'url': url + '.webm'}}
+
+        return img_str, gif
 
 
 class IncomingVideoMessage(XMPPResponse):
@@ -494,6 +568,8 @@ class IncomingVideoMessage(XMPPResponse):
         self.file_content_type = data.find('file-content-type').text if data.find('file-content-type') else None
         self.duration_milliseconds = data.find('duration').text if data.find('duration') else None
         self.file_size = data.find('file-size').text
+        self.source_id = data.content['app-id']
+        self.source_name = data.find('app-name').get_text()
         self.from_jid = data['from']
         self.to_jid = data['to']
         self.group_jid = data.g['jid']
@@ -515,5 +591,3 @@ class IncomingCardMessage(XMPPResponse):
         self.allow_forward = data.find('allow-forward').text if data.find('allow-forward') else None
         self.icon = data.find('icon').text if data.find('icon') else None
         self.uri = data.find('uri').text if data.find('uri') else None
-
-

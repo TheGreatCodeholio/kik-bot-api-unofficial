@@ -21,9 +21,9 @@ from kik_unofficial.utilities.threading_utils import run_in_new_thread
 from kik_unofficial.datatypes.xmpp.base_elements import XMPPElement
 from kik_unofficial.http import profile_pictures, content
 
-
 HOST, PORT = "talk1110an.kik.com", 5223
 log = logging.getLogger('kik_unofficial')
+
 
 class KikClient:
     """
@@ -31,7 +31,11 @@ class KikClient:
     """
 
     def __init__(self, callback: callbacks.KikClientCallback, kik_username, kik_password,
-                 kik_node=None, device_id_override=None, android_id_override=None):
+                 kik_node=None, device_id_override=None, android_id_override=None, operator_override=None,
+                 brand_override=None, model_override=None, android_sdk_override=None,
+                 install_date_override=None, logins_since_install_override=None,
+                 registrations_since_install_override=None):
+
         """
         Initializes a connection to Kik servers.
         If you want to automatically login too, use the username and password parameters.
@@ -50,6 +54,13 @@ class KikClient:
         self.kik_email = None
         self.device_id_override = device_id_override
         self.android_id_override = android_id_override
+        self.operator_override = operator_override
+        self.brand_override = brand_override
+        self.model_override = model_override
+        self.android_sdk_override = android_sdk_override
+        self.install_date_override = install_date_override
+        self.logins_since_install_override = logins_since_install_override
+        self.registrations_since_install_override = registrations_since_install_override
 
         self.callback = callback
         self.authenticator = AuthStanza(self)
@@ -57,7 +68,6 @@ class KikClient:
         self.connected = False
         self.authenticated = False
         self.connection = None
-        self.is_expecting_connection_reset = False
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
 
@@ -84,7 +94,8 @@ class KikClient:
             # we have all required credentials, we can authenticate
             log.info("[+] Establishing authenticated connection using kik node '{}'...".format(self.kik_node))
 
-            message = login.EstablishAuthenticatedSessionRequest(self.kik_node, self.username, self.password, self.device_id_override)
+            message = login.EstablishAuthenticatedSessionRequest(self.kik_node, self.username, self.password,
+                                                                 self.device_id_override)
             self.initial_connection_payload = message.serialize()
         else:
             self.initial_connection_payload = '<k anon="">'.encode()
@@ -116,7 +127,12 @@ class KikClient:
         """
         self.username = username
         self.password = password
-        login_request = login.LoginRequest(username, password, captcha_result, self.device_id_override, self.android_id_override)
+        login_request = login.LoginRequest(username, password, captcha_result, self.device_id_override,
+                                           self.android_id_override,
+                                           self.operator_override, self.brand_override, self.model_override,
+                                           self.android_sdk_override,
+                                           self.install_date_override, self.logins_since_install_override,
+                                           self.registrations_since_install_override)
         login_type = "email" if '@' in self.username else "username"
         log.info("[+] Logging in with {} '{}' and a given password {}..."
                  .format(login_type, username, '*' * len(password)))
@@ -128,7 +144,8 @@ class KikClient:
         """
         self.username = username
         self.password = password
-        register_message = sign_up.RegisterRequest(email, username, password, first_name, last_name, birthday, captcha_result,
+        register_message = sign_up.RegisterRequest(email, username, password, first_name, last_name, birthday,
+                                                   captcha_result,
                                                    self.device_id_override, self.android_id_override)
         log.info("[+] Sending sign up request (name: {} {}, email: {})...".format(first_name, last_name, email))
         return self._send_xmpp_element(register_message)
@@ -193,16 +210,15 @@ class KikClient:
         log.info("[+] Sending read receipt to JID {} for message ID {}".format(peer_jid, receipt_message_id))
         return self._send_xmpp_element(chatting.OutgoingReadReceipt(peer_jid, receipt_message_id, group_jid))
 
-    def send_delivered_receipt(self, peer_jid: str, receipt_message_id: str, group_jid: str = None):
+    def send_delivered_receipt(self, peer_jid: str, receipt_message_id: str):
         """
         Sends a receipt indicating that a specific message was received, to another person.
 
         :param peer_jid: The other peer's JID to send to receipt to
         :param receipt_message_id: The message ID for which to generate the receipt
-        :param group_jid: The group's JID, in case the receipt is sent in a group (None otherwise)
         """
         log.info("[+] Sending delivered receipt to JID {} for message ID {}".format(peer_jid, receipt_message_id))
-        return self._send_xmpp_element(chatting.OutgoingDeliveredReceipt(peer_jid, receipt_message_id, group_jid))
+        return self._send_xmpp_element(chatting.OutgoingDeliveredReceipt(peer_jid, receipt_message_id))
 
     def send_is_typing(self, peer_jid: str, is_typing: bool):
         """
@@ -215,6 +231,20 @@ class KikClient:
             return self._send_xmpp_element(chatting.OutgoingGroupIsTypingEvent(peer_jid, is_typing))
         else:
             return self._send_xmpp_element(chatting.OutgoingIsTypingEvent(peer_jid, is_typing))
+
+    def send_custom_gif_image(self, peer_jid: str, path, url):
+        """
+        Sends a GIF image to another person or a group with the given JID/username.
+        The GIF is taken from tendor.com, based on search keywords.
+        :param peer_jid: The Jabber ID for which to send the message (looks like username_ejs@talk.kik.com
+        :param search_term: The search term to use when searching GIF images on tendor.com
+        """
+        if self.is_group_jid(peer_jid):
+            log.info("[+] Sending a GIF message to group '{}'...".format(peer_jid))
+            return self._send_xmpp_element(chatting.OutgoingGIFMessage2(peer_jid, path, url, True))
+        else:
+            log.info("[+] Sending a GIF message to user '{}'...".format(peer_jid))
+            return self._send_xmpp_element(chatting.OutgoingGIFMessage2(peer_jid, path, url, False))
 
     def send_gif_image(self, peer_jid: str, search_term):
         """
@@ -463,8 +493,6 @@ class KikClient:
         """
         log.info("[!] Disconnecting.")
         self.connection.close()
-        self.is_expecting_connection_reset = True
-
         # self.loop.call_soon(self.loop.stop)
 
     # -----------------
@@ -529,7 +557,7 @@ class KikClient:
                 # authenticated!
                 log.info("[+] Authenticated successfully.")
                 self.authenticated = True
-                self.authenticator.send_stanza()
+                self.authenticator.sendStanza()
                 self.callback.on_authenticated()
             elif self.should_login_on_connection:
                 self.login(self.username, self.password)
@@ -607,15 +635,12 @@ class KikClient:
 
     def _on_connection_lost(self):
         """
-        Gets called when the connection to kik's servers is (unexpectedly) lost.
+        Gets called when the connection to kik's servers is unexpectedly lost.
         It could be that we received a connection reset packet for example.
         :return:
         """
         self.connected = False
-        if not self.is_expecting_connection_reset:
-            log.info("[-] The connection was unexpectedly lost")
-
-        self.is_expecting_connection_reset = False
+        log.info("[-] The connection was lost")
 
     def _kik_connection_thread_function(self):
         """
@@ -658,7 +683,6 @@ class KikClient:
                     raise TimeoutError("Could not get the JID for username {} in time".format(username))
 
             return self.get_jid_from_cache(username)
-
 
     def get_jid_from_cache(self, username):
         for user in self._known_users_information:
